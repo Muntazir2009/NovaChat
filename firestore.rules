@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function isMember(chatData) {
+      return request.auth.uid in chatData.members;
+    }
+
+    // Users collection
+    match /users/{uid} {
+      allow read: if isAuth();
+      allow create: if isAuth() && isOwner(uid);
+      allow update: if isAuth() && isOwner(uid);
+      allow delete: if false;
+    }
+
+    // Chats collection
+    match /chats/{chatId} {
+      allow read: if isAuth() && isMember(resource.data);
+      allow create: if isAuth() && request.auth.uid in request.resource.data.members;
+      allow update: if isAuth() && isMember(resource.data);
+      allow delete: if isAuth() && isMember(resource.data);
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isAuth() && isMember(get(/databases/$(database)/documents/chats/$(chatId)).data);
+        allow create: if isAuth()
+          && isMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
+          && request.resource.data.senderId == request.auth.uid;
+        allow update: if isAuth()
+          && isMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
+          && (resource.data.senderId == request.auth.uid || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions', 'readBy', 'deliveredTo', 'pinned']));
+        allow delete: if false;
+      }
+    }
+  }
+}
